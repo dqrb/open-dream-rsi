@@ -1,8 +1,13 @@
-"""Command-line entry point: run the autonomous self-improvement loop.
+"""命令行入口：解析参数，再交给对应子命令。
 
-    python -m open_dream_rsi loop --tasks tasks.json --once          # cron mode
-    python -m open_dream_rsi loop --tasks tasks.json                 # daemon mode
-    python -m open_dream_rsi status                                  # inspect memory
+学习链路第 1 步（接 ``__main__.py``）：
+  ``main()`` 注册子命令 → ``cmd_loop`` / ``cmd_dashboard`` 等 → 真正干活的是 ``loop`` / ``dashboard``。
+
+常用：
+    python -m open_dream_rsi loop --tasks tasks.json --once   # 只跑一轮
+    python -m open_dream_rsi loop --tasks tasks.json          # 守护进程循环
+    python -m open_dream_rsi status                           # 查看记忆目录
+    python -m open_dream_rsi dashboard                        # 打开看板
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ def _apply_no_thinking(cfg) -> None:
 
 
 def cmd_loop(args: argparse.Namespace) -> int:
+    # 组装「模型客户端 + 持久记忆 + 任务队列」，交给主调度器 AutoRSIRuntime
     tasks_raw = json.loads(Path(args.tasks).read_text(encoding="utf-8"))
     tasks = [Task(**t) for t in tasks_raw]
     memory = DreamMemory(args.memory)
@@ -62,10 +68,12 @@ def cmd_loop(args: argparse.Namespace) -> int:
         enable_judge=not args.no_judge,
     )
     if args.once:
+        # 单轮：适合 cron / 手动试跑；记忆会留下，下次接着用
         report = runtime.run_once()
         print(json.dumps(report.to_dict(), indent=2))
         return 0
     try:
+        # 守护模式：醒 → 跑一轮 → 睡 → 再醒（学习链路第 2 步：loop.py）
         runtime.run_forever(max_cycles=args.cycles)
     except KeyboardInterrupt:
         print("\n[odr] supervisor stopped.", file=sys.stderr)
@@ -331,6 +339,7 @@ def cmd_artifacts(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """解析 ``odr <子命令>``，再调用对应 ``cmd_*``。看板入口是 ``dashboard``。"""
     parser = argparse.ArgumentParser(prog="odr", description="Open Dream-RSI autonomous supervisor")
     parser.add_argument("--memory", default=".dream_rsi", help="memory directory (one per instance)")
     sub = parser.add_subparsers(dest="command", required=True)

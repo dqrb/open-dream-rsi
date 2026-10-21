@@ -1,20 +1,15 @@
-"""Persistent memory for the autonomous RSI loop (Hermes-style).
+"""学习链路第 6 步：持久记忆 —— 代理学到的东西跨重启还在（Hermes 风格）。
 
-Everything the agent learns survives restarts:
+一个 ``--memory`` 目录 = 一个自我改进实例。主要文件：
 
-* ``policies.json``  — dreamed policy parameters per task category. The next
-  run of the same category starts where the last one finished.
-* ``policy_codes.json`` — LLM-written exploration-policy programs per category
-  (paper section 3: the policy itself is code, rewritten between cycles and
-  promoted only when it beats the incumbent on replay).
-* ``recipes.json``   — distilled winning solutions per category, used as warm
-  starts (the loop literally improves itself between runs).
-* ``lessons.json``   — curated knowledge base: failure-distilled, deduplicated
-  lesson records per category, retrieved into future proposals and pruned
-  when they demonstrably stop helping (the loop gets *smarter*, not just
-  cheaper between runs).
-* ``trees/``         — archived Discovery Trees per task (offline-dream fodder).
-* ``events.jsonl``   — append-only log of every runtime decision.
+* ``policies.json``     — 各类别做梦得到的策略参数（下次热启动）
+* ``policy_codes.json`` — LLM 写的探索策略程序（回放打赢现任才晋升）
+* ``recipes.json``      — 验证通过的解法，当热启动配方
+* ``lessons.json``      — 从失败提炼的教训知识库（还要过门才能进提示）
+* ``trees/``            — 每题的发现树归档（做梦的原料）
+* ``events.jsonl``      — 每次决策的追加日志
+
+看板右下角「配方 / 策略 / 教训」面板，读的就是这些。
 """
 
 from __future__ import annotations
@@ -32,7 +27,7 @@ MAX_DIGESTED_PER_CATEGORY = 64
 
 
 class DreamMemory:
-    """JSON-backed store: cross-run policy library + recipe library + logs."""
+    """基于 JSON 的跨运行存储：策略库 + 配方库 + 教训 + 树 + 事件日志。"""
 
     def __init__(self, root: "str | Path" = ".dream_rsi"):
         self.root = Path(root)
@@ -62,10 +57,12 @@ class DreamMemory:
     # -- policies ----------------------------------------------------------------
 
     def get_policy(self, category: str) -> Optional[Dict[str, float]]:
+        """读取某类别最新做梦策略参数（temperature / exploration_depth）。"""
         entry = self._policies.get(category)
         return dict(entry["params"]) if entry else None
 
     def save_policy(self, category: str, params: Dict[str, float]) -> None:
+        """写下做梦后的策略，供下一轮在线探索使用。"""
         self._policies[category] = {"params": dict(params), "updated_at": time.time()}
         self._save(self.root / "policies.json", self._policies)
 
@@ -89,13 +86,15 @@ class DreamMemory:
     # -- recipes (learned solutions) ----------------------------------------------
 
     def get_recipe(self, category: str) -> Optional[str]:
+        """已验证的最佳解法源码（热启动用）。"""
         entry = self._recipes.get(category)
         return entry["code"] if entry else None
 
     def save_recipe(self, category: str, code: str, score: float) -> bool:
+        """只保留更高分的解法；更差的直接丢弃。"""
         old = self._recipes.get(category)
         if old and old.get("score", 0.0) >= score:
-            return False  # keep the best-known solution
+            return False  # 保住当前最佳
         self._recipes[category] = {"code": code, "score": score, "saved_at": time.time()}
         self._save(self.root / "recipes.json", self._recipes)
         return True
@@ -164,9 +163,10 @@ class DreamMemory:
         data[category] = merged[-MAX_DIGESTED_PER_CATEGORY:]
         self._save(self.root / "lessons_digest.json", data)
 
-    # -- discovery trees -------------------------------------------------------------
+    # -- 发现树归档（做梦原料）-------------------------------------------------------
 
     def archive_tree(self, task_id: str, tree: DiscoveryTree) -> None:
+        """把本题发现树落到 ``trees/<task_id>.json``。"""
         payload = {
             "root_id": tree.root_id,
             "nodes": [vars(n) for n in tree.nodes.values()],
@@ -174,6 +174,7 @@ class DreamMemory:
         self._save(self.root / "trees" / f"{task_id}.json", payload)
 
     def load_tree(self, task_id: str) -> Optional[DiscoveryTree]:
+        """加载历史树；没有则返回 None（``loop`` 会新建一棵）。"""
         path = self.root / "trees" / f"{task_id}.json"
         if not path.exists():
             return None
@@ -187,9 +188,10 @@ class DreamMemory:
             tree.nodes[node.node_id] = node
         return tree
 
-    # -- event log ---------------------------------------------------------------------
+    # -- 事件日志（看板左侧事件流同源）------------------------------------------------
 
     def log_event(self, kind: str, **fields: Any) -> None:
+        """追加一条决策记录到 ``events.jsonl``。"""
         event = {"ts": time.time(), "kind": kind, **fields}
         with open(self.root / "events.jsonl", "a", encoding="utf-8") as fh:
             fh.write(json.dumps(event, ensure_ascii=False) + "\n")

@@ -1,21 +1,15 @@
-"""Offline dreaming: hill-climb exploration parameters by *simulating the
-choices they would make* on the recorded discovery tree (issue #1).
+"""学习链路第 5 步（上）：离线做梦 —— 在已记录的发现树上爬山调探索参数。
 
-The two parameters define a parameterised exploration policy:
+不花 API：只在历史树上「假如用这组参数选分枝，会不会更好」。
 
-* ``temperature``       — softmax sharpness over the as-of-now outcomes of
-  the visible frontier (``T -> 0``: deterministic greedy, ``T`` large:
-  near-uniform random exploration).
-* ``exploration_depth`` — how often one node may be re-polished before the
-  policy forces a new branch: nodes already expanded ``depth`` or more
-  times drop out of the candidate pool.
+两个参数组成参数化探索策略：
 
-The objective is the SAME counterfactual rollout objective that gates
-LLM-written policy code (``core.policygen``: mean recorded-child reward +
-``beta_2`` branch diversity), averaged over deterministic seeded episodes
-and computed with the prefix-only reward harness — a parameter only earns
-score when the choices it produces would have opened better branches in the
-recorded history. No hard-coded reward shaping.
+* ``temperature``       — 对当前可见前沿的 softmax 锐度
+  （``T→0`` 贪心；``T`` 大则近乎均匀乱探）。
+* ``exploration_depth`` — 同一节点最多再打磨几次；超过就被迫开新分枝。
+
+目标函数与门控 LLM 写的策略代码相同（反事实 rollout）；参数只有在「历史里
+会打开更好分枝」时才得分。看板里的 DREAM ITS 大体对应这里的迭代次数。
 """
 
 import math
@@ -36,33 +30,32 @@ DREAM_SEED = 1234
 
 
 class DreamEngine:
-    """Offline exploration-strategy optimization engine (Offline Dreaming)."""
+    """离线探索策略优化引擎（Offline Dreaming）。"""
 
     def __init__(self, simulator: ReplaySimulator):
         self.simulator = simulator
+        # 在线下一轮会读这两个数来「怎么探」
         self.policy_parameters: Dict[str, float] = {"temperature": 0.7, "exploration_depth": 3.0}
-        #: Dedicated RNG: mutation moves AND episode draws are seeded, so a
-        #: dream run on the same tree is reproducible (benchmarks + tests).
+        #: 专用 RNG：变异与回合抽样都有种子，同树做梦可复现（基准/测试用）
         self._rng = random.Random(DREAM_SEED)
 
     def run_offline_optimization(self, iterations: int = 50) -> Dict[str, float]:
-        """Optimize the policy parameters over the simulated history."""
-        # Incumbent seeds the hill climb: a candidate only replaces it on a
-        # strictly better simulated score (same promotion rule as section 3).
+        """在模拟历史上爬山，优化 ``policy_parameters``。"""
+        # 现任种子爬山：只有模拟分严格更高才替换（与第 3 节晋升规则一致）
         best_policy = self.policy_parameters.copy()
         best_score = self._evaluate_policy_in_dream(best_policy)
 
         for _ in range(iterations):
-            # 1. Mutate the strategy parameters (clamped to safe bounds)
+            # 1. 微扰参数（钳在安全区间）
             candidate_policy = {
                 "temperature": min(TEMP_MAX, max(TEMP_MIN, self.policy_parameters["temperature"] + self._rng.uniform(-0.1, 0.1))),
                 "exploration_depth": min(DEPTH_MAX, max(DEPTH_MIN, self.policy_parameters["exploration_depth"] + self._rng.uniform(-0.5, 0.5))),
             }
 
-            # 2. Evaluate the candidate in the simulator
+            # 2. 在回放模拟器里打分（不调真工具）
             simulated_score = self._evaluate_policy_in_dream(candidate_policy)
 
-            # 3. Keep the best-so-far (hill climbing over dreams)
+            # 3. 更好就留下
             if simulated_score > best_score:
                 best_score = simulated_score
                 best_policy = candidate_policy
@@ -100,11 +93,9 @@ class DreamEngine:
         return pool[-1]["node_id"]
 
     def _evaluate_policy_in_dream(self, policy: Dict[str, float]) -> float:
-        """Dreaming: roll the parameterised policy over the recorded history.
+        """做梦打分：用候选参数在记录历史上 rollout，看「选分枝」好不好。
 
-        ``exploration_depth`` gates re-polishing and ``temperature`` drives
-        the softmax, so the score reflects the *choices* the candidate
-        parameters make — not a fixed function of the parameters themselves.
+        分数反映参数导致的*选择*，不是参数本身的固定函数。
         """
         if not self.simulator.tree.nodes:
             return float("-inf")

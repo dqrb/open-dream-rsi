@@ -1,21 +1,20 @@
-"""Autonomous RSI runtime — the self-improvement loop that runs itself.
+"""自主 RSI 运行时 —— 会自己醒过来循环改进的调度器（学习链路第 2 步）。
 
-Hermes-style design: a supervisor daemon ("``odr loop``") owns the cycle
+Hermes 风格：守护进程（``odr loop``）拥有整轮循环：
 
-    wake -> pick tasks -> online attempt (LLM + sandbox) -> offline dream
-         -> persist policy/recipe/tree -> sleep -> wake ...
+    醒来 → 选任务 → 在线尝试（LLM + 沙箱）→ 离线做梦
+         → 持久化策略/配方/树 → 睡觉 → 再醒来 …
 
-Nothing waits for a human between cycles:
+轮与轮之间不等人：
 
-* **Persistent memory** (:class:`~open_dream_rsi.memory.DreamMemory`): each
-  category keeps its best dreamed policy and best-known code recipe across
-  restarts, so run N+1 starts where run N ended.
-* **Self-scheduling**: ``run_forever`` sleeps ``interval_seconds`` between
-  cycles; alternatively use ``--once`` under cron/systemd — memory makes the
-  two modes interchangeable.
-* **Budget guard**: every cycle stops early once the API-call budget runs
-  out — dreaming is free, so improvement continues offline.
-* **Event log**: every decision is appended to ``events.jsonl`` (audit trail).
+* **持久记忆**（:class:`~open_dream_rsi.memory.DreamMemory`）：每个类别跨重启保留
+  最好的做梦策略和已验证配方，第 N+1 次从第 N 次结束的地方接着干。
+* **自调度**：``run_forever`` 每轮之间睡 ``interval_seconds``；也可用 ``--once``
+  挂 cron —— 有记忆，两种模式等价。
+* **预算守卫**：API 调用打满就提前停；做梦不花 API，离线仍可改进。
+* **事件日志**：每次决策追加到 ``events.jsonl``（审计轨迹）。
+
+跟代码：从 ``run_once`` / ``_work_on_task`` 往下点「转到定义」。
 """
 
 from __future__ import annotations
@@ -104,13 +103,13 @@ idea verbatim; if one of these was structurally promising, build ON it:
 
 @dataclass
 class Task:
+    """队列里的一道题：提示词 + 测试用例（或 criteria）。"""
     task_id: str
-    category: str
+    category: str          # 类别键：策略/配方/教训都按它分组
     prompt: str
     tests: List[Dict[str, Any]]
     max_attempts: int = 4
-    #: Optional success criterion for test-less tasks: consulted by the
-    #: completion judge when tests are empty (tests always dominate).
+    #: 无测试任务的成功标准；有 tests 时仍以测试为准
     criteria: str = ""
 
 
@@ -177,15 +176,14 @@ class CycleReport:
 
 
 class AutoRSIRuntime:
-    """The supervisor that runs the Dream-RSI cycle automatically.
+    """Dream-RSI 主调度器：一轮 = 对队列里每道题做「在线尝试 + 离线做梦」。
 
     Args:
-        client: OpenAI-compatible LLM client (OpenAI, Cursor Models API, local).
-        memory: persistent store; one directory = one self-improving instance.
-        tasks:  task queue (a callable returning a fresh list is re-read each
-                cycle, so you can grow the queue from outside).
-        verifier: sandboxed code runner; defaults to :class:`CodeVerifier`.
-        api_call_budget / dream_iterations / interval_seconds: loop guards.
+        client: OpenAI 兼容客户端（真模型或看板里的 MockLLM）。
+        memory: 持久目录；一个目录 = 一个自我改进实例。
+        tasks:  任务队列（也可传 callable，每轮重新读，方便外部加题）。
+        verifier: 沙箱跑测试；默认 :class:`CodeVerifier`。
+        api_call_budget / dream_iterations / interval_seconds: 循环护栏。
     """
 
     def __init__(
@@ -416,17 +414,19 @@ class AutoRSIRuntime:
                 self.memory.log_event("alm_error", slot=category,
                                       lesson=key, error=str(exc)[:300])
 
-    # -- one full cycle ----------------------------------------------------------
+    # -- 一整轮循环（看板每一「Cycles +1」都走这里）--------------------------------
 
     def run_once(self) -> CycleReport:
+        """跑一轮：先处理暂存教训，再逐任务 ``_work_on_task``，最后写日志。"""
         report = CycleReport()
-        self._drain_staging(report)      # gate leftovers from previous cycles
+        self._drain_staging(report)      # 给上轮没过门的 staging 教训再一次机会
         tasks = self._tasks() if callable(self._tasks) else list(self._tasks)
         self._emit("cycle_start", tasks=[t.task_id for t in tasks])
         for task in tasks:
             if self.api_calls_used >= self.api_call_budget:
                 report.stopped_reason = "api_budget_exhausted"
                 break
+            # 单任务：问模型 → 沙箱验 → 记树 → 做梦 → 写 memory（见下方）
             solved, improved = self._work_on_task(task, report)
             report.tasks_attempted += 1
             if solved:
@@ -481,7 +481,7 @@ class AutoRSIRuntime:
             self._gate_staging_lessons(task, staged, report)
 
     def run_forever(self, max_cycles: Optional[int] = None) -> None:
-        """Daemon mode: wake -> cycle -> sleep -> repeat (Ctrl-C to stop)."""
+        """守护模式：醒 → ``run_once`` → 睡 → 重复（Ctrl-C 停）。"""
         cycle = 0
         while max_cycles is None or cycle < max_cycles:
             cycle += 1
@@ -499,9 +499,10 @@ class AutoRSIRuntime:
             if max_cycles is None or cycle < max_cycles:
                 time.sleep(self.interval_seconds)
 
-    # -- task working loop -----------------------------------------------------------
+    # -- 单任务：在线展开发现树，再离线做梦 ------------------------------------------
 
     def _work_on_task(self, task: Task, report: CycleReport) -> tuple[bool, str]:
+        # 热启动：读出该类已有策略参数、已验证配方、历史发现树
         category = task.category
         calls_at_start = report.api_calls
         policy = self.memory.get_policy(category)

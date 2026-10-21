@@ -1,15 +1,12 @@
-"""Live web dashboard: watch the autonomous RSI loop work in real time.
+"""实时 Web 看板：看着自主 RSI 循环干活。
 
-    python -m open_dream_rsi dashboard                  # mock LLM, zero setup
+    python -m open_dream_rsi dashboard                  # 假模型，零配置
     python -m open_dream_rsi dashboard --provider openai --tasks tasks.json
     python -m open_dream_rsi dashboard --provider cursor --model grok-4.7
 
-Opens a dark, dependency-free dashboard (stdlib http.server only) showing:
-KPIs (cycles / API calls / solved / dream iterations), a live event feed,
-per-task attempt boards with score bars, dreamed-policy gauges per category
-and the learned recipe library with code. Default mode drives a scripted
-'mock LLM' so you can see the full improve -> dream -> warm-start story
-without any API key.
+纯标准库 http.server，无前端依赖。展示：KPI（轮次 / API / 解题 / 做梦迭代）、
+实时事件流、每题尝试板、各类别做梦策略、配方库与教训库。默认用脚本化
+「假 LLM」，无需 API Key 也能看完整条 改进 → 做梦 → 热启动 故事。
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ from open_dream_rsi.memory import DreamMemory
 # Demo task set + scripted "mock LLM" (first attempt buggy, fix after feedback)
 # ---------------------------------------------------------------------------
 
-#: category -> (first buggy answer, corrected answer)
+#: 类别 -> (第一次错误答案, 修正后答案) —— 假模型按题号演戏
 SOLUTIONS = {
     "add": (
         "def add(a, b):\n    return a - b\n",
@@ -53,31 +50,31 @@ SOLUTIONS = {
 
 DEMOS = [
     dict(task_id="add1", category="add",
-         prompt="Implement add(a, b) returning the sum of two numbers.",
+         prompt="实现 add(a, b)，返回两数之和。",
          tests=[{"call": "add(2, 3)", "expected": 5}, {"call": "add(-1, 1)", "expected": 0}]),
     dict(task_id="clamp1", category="clamp",
-         prompt="Implement clamp(x, lo, hi) bounding x into [lo, hi].",
+         prompt="实现 clamp(x, lo, hi)，把 x 限制在 [lo, hi] 区间内。",
          tests=[{"call": "clamp(5, 0, 10)", "expected": 5},
                 {"call": "clamp(-3, 0, 10)", "expected": 0},
                 {"call": "clamp(42, 0, 10)", "expected": 10}]),
     dict(task_id="rev1", category="reverse_words",
-         prompt="Implement reverse_words(s) reversing the order of words (not characters).",
+         prompt="实现 reverse_words(s)，反转单词顺序（不是反转字符）。",
          tests=[{"call": "reverse_words('a b c')", "expected": "c b a"},
                 {"call": "reverse_words('hello')", "expected": "hello"}]),
     dict(task_id="fact1", category="factorial",
-         prompt="Implement factorial(n) with factorial(0) == 1.",
+         prompt="实现 factorial(n)，且 factorial(0) == 1。",
          tests=[{"call": "factorial(0)", "expected": 1}, {"call": "factorial(5)", "expected": 120}]),
     dict(task_id="pal1", category="is_palindrome",
-         prompt="Implement is_palindrome(s), case-insensitive.",
+         prompt="实现 is_palindrome(s)，忽略大小写判断回文。",
          tests=[{"call": "is_palindrome('RaceCar')", "expected": True},
                 {"call": "is_palindrome('abc')", "expected": False}]),
 ]
 
 
 class MockLLM:
-    """Scripted OpenAI-like client: first answer is buggy, the feedback round fixes it.
+    """脚本化假模型：第一次交错误答案，看到失败反馈后交正确解。
 
-    Mimics model latency with a small sleep so the dashboard animates naturally.
+    故意 sleep 一点，让看板动画看起来像真的在「思考」。
     """
 
     def __init__(self, latency: float = 0.25):
@@ -228,7 +225,7 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8765, provider: str = "mock
 
     if provider == "mock":
         client: Any = MockLLM()
-        provider_label = "mock LLM (scripted)"
+        provider_label = "假模型（脚本）"
     else:
         from open_dream_rsi.llm import LLMConfig, OpenAICompatibleClient
 
@@ -236,7 +233,7 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8765, provider: str = "mock
         if model:
             cfg.model = model
         client = OpenAICompatibleClient(cfg)
-        provider_label = f"{provider} ({cfg.base_url})"
+        provider_label = f"{provider}（{cfg.base_url}）"
 
     state = DashboardState(demo_tasks)
     holder: Dict[str, Any] = {"memory": DreamMemory(memory_root)}
@@ -319,11 +316,11 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8765, provider: str = "mock
 # ---------------------------------------------------------------------------
 
 DASHBOARD_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Open Dream-RSI — live</title>
+<title>Open Dream-RSI — 实时看板</title>
 <style>
 :root{--bg:#0a0d13;--card:#101625;--card2:#0d131f;--line:#1d2739;--txt:#e6edf3;
 --mut:#8b98ad;--acc:#6c8cff;--acc2:#9a6cff;--ok:#3fd68f;--bad:#ff6b81;--dream:#b18cff;}
@@ -391,36 +388,37 @@ details summary{cursor:pointer;color:var(--acc);font-size:12px}
 <div class="top">
   <h1><span class="moon">🌙</span> Open Dream-RSI <span class="chip" id="provider">…</span></h1>
   <div>
-    <span class="chip" id="memchip">memory</span>
-    <button onclick="act('pause')" id="pauseBtn">⏸ Pause</button>
-    <button onclick="act('reset')">↺ Reset</button>
+    <span class="chip" id="memchip">记忆目录</span>
+    <button onclick="act('pause')" id="pauseBtn">⏸ 暂停</button>
+    <button onclick="act('reset')">↺ 重置</button>
   </div>
 </div>
 
 <div class="kpis">
-  <div class="kpi"><span>Cycles</span><b id="kCycles">0</b><div class="sub">autonomous wake-ups</div></div>
-  <div class="kpi"><span>Solved</span><b id="kSolved">0/0</b><div class="sub">verified tasks</div></div>
-  <div class="kpi"><span>API calls</span><b id="kApi">0</b><div class="sub" id="kBudget">budget / cycle</div></div>
-  <div class="kpi"><span>Dream its</span><b id="kDreams">0</b><div class="sub">offline, free 🌙</div></div>
+  <div class="kpi"><span>循环轮次</span><b id="kCycles">0</b><div class="sub">自主醒来次数</div></div>
+  <div class="kpi"><span>已解题目</span><b id="kSolved">0/0</b><div class="sub">通过测试的任务</div></div>
+  <div class="kpi"><span>API 调用</span><b id="kApi">0</b><div class="sub" id="kBudget">本轮预算</div></div>
+  <div class="kpi"><span>做梦迭代</span><b id="kDreams">0</b><div class="sub">离线、免费 🌙</div></div>
 </div>
 
 <div class="grid">
   <div>
-    <div class="panel"><h2>Live event feed</h2><div id="feed"></div></div>
+    <div class="panel"><h2>实时事件流</h2><div id="feed"></div></div>
   </div>
   <div>
-    <div class="panel"><h2>Task board — online attempts</h2><div id="tasks"></div></div>
-    <div class="panel"><h2>Dreamed policies (offline learning)</h2><div id="policies"></div></div>
-    <div class="panel"><h2>Evolved policy code (LLM-written, replay-gated)</h2><div id="policycodes"></div></div>
-    <div class="panel"><h2>Recipe library — learned solutions</h2><div id="recipes"></div>
-      <div class="foot">open-dream-rsi · stdlib only · policies &amp; recipes persist across restarts</div></div>
-    <div class="panel"><h2>Knowledge base — curated lessons from failures</h2><div id="lessons"></div></div>
+    <div class="panel"><h2>任务板 — 在线尝试</h2><div id="tasks"></div></div>
+    <div class="panel"><h2>做梦策略（离线学习）</h2><div id="policies"></div></div>
+    <div class="panel"><h2>演化策略代码（LLM 编写，回放门控）</h2><div id="policycodes"></div></div>
+    <div class="panel"><h2>配方库 — 已学会的解法</h2><div id="recipes"></div>
+      <div class="foot">open-dream-rsi · 仅标准库 · 策略与配方跨重启保留</div></div>
+    <div class="panel"><h2>知识库 — 从失败提炼的教训</h2><div id="lessons"></div></div>
   </div>
 </div>
 
 <script>
 const $=s=>document.querySelector(s);
-const fmt=t=>new Date(t*1000).toLocaleTimeString();
+const fmt=t=>new Date(t*1000).toLocaleTimeString('zh-CN');
+const STATUS={pending:'待开始',attempting:'尝试中',solved:'已解决'};
 const ICONS={llm_call:"📡",verification:"🧪",dreaming:"🌙",dream_done:"✨",task_done:"🎯",
 cycle_start:"▶",cycle_done:"🔄",runtime_error:"💥",policy_gen:"🧬",policy_promoted:"🧬",policy_rejected:"🚫",
 knowledge_curate:"📚",lessons_curated:"📚",lesson_rejected:"🚫"};
@@ -429,19 +427,19 @@ function evLine(e){
   const d=document.createElement('div');
   let cls=e.kind,txt='';
   if(e.kind==='verification'){cls+=' '+(e.ok?'':'bad');
-    txt=`${e.task_id} → score ${e.score}${e.ok?' ✅':' ❌'}${!e.ok&&e.errors?' — '+String(e.errors).slice(0,80):''}`;}
-  else if(e.kind==='llm_call')txt=`${e.task_id}: LLM ask @T=${(+e.temperature).toFixed(2)}`;
-  else if(e.kind==='dreaming')txt=`${e.task_id}: dreaming on ${e.nodes} nodes ×${e.iterations}`;
-  else if(e.kind==='dream_done')txt=`${e.task_id}: policy → T=${(+e.policy.temperature).toFixed(2)}, depth=${(+e.policy.exploration_depth).toFixed(2)}`;
-  else if(e.kind==='task_done')txt=`${e.task_id} ${e.solved?'SOLVED 🏆':'unsolved'} (${e.nodes} nodes)`;
-  else if(e.kind==='policy_gen')txt=`${e.task_id}: asking LLM for a new exploration policy (incumbent ${(+e.incumbent_score).toFixed(3)})`;
-  else if(e.kind==='policy_promoted')txt=`${e.task_id}: 🧬 new policy promoted (replay ${(+e.score).toFixed(3)})`;
-  else if(e.kind==='policy_rejected')txt=`${e.task_id}: policy rejected — ${String(e.reason||'').slice(0,90)}`;
-  else if(e.kind==='knowledge_curate')txt=`${e.task_id}: 📚 curator digesting ${e.new_failures} new failure(s)`;
-  else if(e.kind==='lessons_curated')txt=`${e.task_id}: 📚 KB +${(e.added||[]).length} lesson(s), merged ${e.merged}`;
-  else if(e.kind==='lesson_rejected')txt=`${e.task_id}: lessons rejected — ${String(e.reason||'').slice(0,90)}`;
-  else if(e.kind==='cycle_done')txt=`cycle done — ${e.tasks_solved}/${e.tasks_attempted} solved, ${e.api_calls} calls`;
-  else if(e.kind==='cycle_start')txt='cycle start: '+(e.tasks||[]).join(', ');
+    txt=`${e.task_id} → 得分 ${e.score}${e.ok?' ✅':' ❌'}${!e.ok&&e.errors?' — '+String(e.errors).slice(0,80):''}`;}
+  else if(e.kind==='llm_call')txt=`${e.task_id}: 询问模型 @温度=${(+e.temperature).toFixed(2)}`;
+  else if(e.kind==='dreaming')txt=`${e.task_id}: 在 ${e.nodes} 个节点上做梦 ×${e.iterations}`;
+  else if(e.kind==='dream_done')txt=`${e.task_id}: 策略 → 温度=${(+e.policy.temperature).toFixed(2)}, 深度=${(+e.policy.exploration_depth).toFixed(2)}`;
+  else if(e.kind==='task_done')txt=`${e.task_id} ${e.solved?'已解决 🏆':'未解决'}（${e.nodes} 个节点）`;
+  else if(e.kind==='policy_gen')txt=`${e.task_id}: 请模型写新探索策略（现任分 ${(+e.incumbent_score).toFixed(3)}）`;
+  else if(e.kind==='policy_promoted')txt=`${e.task_id}: 🧬 新策略已晋升（回放分 ${(+e.score).toFixed(3)}）`;
+  else if(e.kind==='policy_rejected')txt=`${e.task_id}: 策略被拒绝 — ${String(e.reason||'').slice(0,90)}`;
+  else if(e.kind==='knowledge_curate')txt=`${e.task_id}: 📚 策展消化 ${e.new_failures} 条新失败`;
+  else if(e.kind==='lessons_curated')txt=`${e.task_id}: 📚 知识库 +${(e.added||[]).length} 条教训，合并 ${e.merged}`;
+  else if(e.kind==='lesson_rejected')txt=`${e.task_id}: 教训被拒绝 — ${String(e.reason||'').slice(0,90)}`;
+  else if(e.kind==='cycle_done')txt=`本轮结束 — ${e.tasks_solved}/${e.tasks_attempted} 题已解，${e.api_calls} 次调用`;
+  else if(e.kind==='cycle_start')txt='本轮开始：'+(e.tasks||[]).join(', ');
   else if(e.kind==='runtime_error')txt=e.error;
   d.className='ev '+cls;
   d.innerHTML=`<span class="t">${fmt(e.ts)}</span>${ICONS[e.kind]||'·'} ${txt}`;
@@ -453,47 +451,47 @@ async function refresh(){
   $('#kCycles').textContent=s.cycles;
   $('#kSolved').textContent=`${s.solved}/${s.tasks_total}`;
   $('#kApi').textContent=s.api_calls_total;
-  $('#kBudget').textContent=`${s.api_calls_cycle}/${s.budget} used this cycle`;
+  $('#kBudget').textContent=`本轮已用 ${s.api_calls_cycle}/${s.budget}`;
   $('#kDreams').textContent=s.dreams_total;
   $('#provider').textContent=s.provider;
-  $('#memchip').textContent='memory: '+s.memory;
-  $('#pauseBtn').textContent=s.paused?'▶ Resume':'⏸ Pause';
+  $('#memchip').textContent='记忆：'+s.memory;
+  $('#pauseBtn').textContent=s.paused?'▶ 继续':'⏸ 暂停';
   const feed=$('#feed');feed.innerHTML='';
   s.events.slice().reverse().forEach(e=>feed.appendChild(evLine(e)));
   $('#tasks').innerHTML=s.tasks.map(t=>{
-    const att=(t.attempts||[]).slice(-4).map(a=>`<div class="att"><div class="lbl">score ${a.score}</div>
+    const att=(t.attempts||[]).slice(-4).map(a=>`<div class="att"><div class="lbl">得分 ${a.score}</div>
       <div class="bar"><i style="width:${Math.round(a.score*100)}%"></i></div>
       ${a.ok?'':`<div class="err">${esc((Array.isArray(a.errors)?a.errors.join('\n'):a.errors||'').slice(0,120))}</div>`}
-      ${a.code?`<details><summary>code</summary><pre>${esc(a.code)}</pre></details>`:''}</div>`).join('');
+      ${a.code?`<details><summary>查看代码</summary><pre>${esc(a.code)}</pre></details>`:''}</div>`).join('');
     return `<div class="task"><div class="head"><span class="name">${t.task_id}
       <span style="color:var(--mut);font-weight:400">· ${t.category}</span></span>
-      <span class="pill ${t.status}">${t.status.toUpperCase()}</span></div>
+      <span class="pill ${t.status}">${STATUS[t.status]||t.status}</span></div>
       <div style="color:var(--mut);font-size:12px;margin-top:2px">${esc(t.prompt)}</div>
-      <div class="attempts">${att||'<div class="att"><div class="lbl">awaiting first attempt</div></div>'}</div></div>`;
+      <div class="attempts">${att||'<div class="att"><div class="lbl">等待首次尝试</div></div>'}</div></div>`;
   }).join('');
   const cats=Object.keys(s.policies||{});
   $('#policies').innerHTML=cats.length?cats.map(c=>{
     const p=s.policies[c];
     return `<div class="pol"><span class="cat">${c}</span>
-      <span>temp<div class="pbar temp"><i style="width:${Math.min(100,p.temperature/1.2*100)}%"></i></div></span><span class="val">${(+p.temperature).toFixed(2)}</span>
-      <span>depth<div class="pbar dep"><i style="width:${Math.min(100,p.exploration_depth/6*100)}%"></i></div></span><span class="val">${(+p.exploration_depth).toFixed(2)}</span></div>`;
-  }).join(''):'<span style="color:var(--mut)">no dreams yet…</span>';
+      <span>温度<div class="pbar temp"><i style="width:${Math.min(100,p.temperature/1.2*100)}%"></i></div></span><span class="val">${(+p.temperature).toFixed(2)}</span>
+      <span>深度<div class="pbar dep"><i style="width:${Math.min(100,p.exploration_depth/6*100)}%"></i></div></span><span class="val">${(+p.exploration_depth).toFixed(2)}</span></div>`;
+  }).join(''):'<span style="color:var(--mut)">还没有做梦结果…</span>';
   const pc=Object.entries(s.policy_codes||{});
   $('#policycodes').innerHTML=pc.length?pc.map(([c,e])=>
     `<div style="margin-bottom:8px"><b style="font-size:12px;color:var(--dream)">🧬 ${c}</b>
-     <span style="color:var(--mut);font-size:11px">replay score ${(+e.score).toFixed(3)}</span><pre>${esc(e.code)}</pre></div>`).join('')
-    :'<span style="color:var(--mut)">no promoted policy code yet — the loop promotes only replay-beating candidates</span>';
+     <span style="color:var(--mut);font-size:11px">回放分 ${(+e.score).toFixed(3)}</span><pre>${esc(e.code)}</pre></div>`).join('')
+    :'<span style="color:var(--mut)">尚无晋升的策略代码 — 只有回放打赢现任才会晋升</span>';
   const r=Object.entries(s.recipes||{});
   $('#recipes').innerHTML=r.length?r.map(([c,e])=>
     `<div style="margin-bottom:8px"><b style="font-size:12px;color:var(--ok)">✓ ${c}</b>
-     <span style="color:var(--mut);font-size:11px">score ${e.score}</span><pre>${esc(e.code)}</pre></div>`).join('')
-    :'<span style="color:var(--mut)">empty — the loop saves verified solutions here</span>';
+     <span style="color:var(--mut);font-size:11px">得分 ${e.score}</span><pre>${esc(e.code)}</pre></div>`).join('')
+    :'<span style="color:var(--mut)">空 — 验证通过的解法会保存在这里</span>';
   const ls=Object.entries(s.lessons||{});
   $('#lessons').innerHTML=ls.length?ls.map(([c,arr])=>
     `<div style="margin-bottom:8px"><b style="font-size:12px;color:var(--dream)">📚 ${c}</b>`+
     arr.map(l=>`<div style="font-size:12px;margin:3px 0 3px 10px"><span style="color:var(--mut)">[${esc(l.trigger)}]</span> ${esc(l.text)}
-      <span style="color:var(--mut);font-size:10px">wins ${l.wins} · uses ${l.uses}</span></div>`).join('')+`</div>`).join('')
-    :'<span style="color:var(--mut)">empty — the curator distils lessons from failures here</span>';
+      <span style="color:var(--mut);font-size:10px">胜 ${l.wins} · 用 ${l.uses}</span></div>`).join('')+`</div>`).join('')
+    :'<span style="color:var(--mut)">空 — 策展器会把失败提炼成教训写在这里</span>';
 }
 setInterval(refresh,700);refresh();
 </script>
