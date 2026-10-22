@@ -113,7 +113,8 @@ class CodeVerifier:
         try:
             report = json.loads(line)
         except (json.JSONDecodeError, IndexError):
-            return {"ok": False, "error": f"verifier crash: {proc.stderr[:300]!r}",
+            err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "(no output)"
+            return {"ok": False, "error": f"verifier crash rc={proc.returncode}: {err[:500]}",
                     "defined": [], "stdout": ""}
         defined = report.get("defined", [])
         return {"ok": "error" not in report, "error": report.get("error", ""),
@@ -146,7 +147,15 @@ class CodeVerifier:
         try:
             report = json.loads(line)
         except (json.JSONDecodeError, IndexError):
-            return ToolResult(False, 0.0, f"verifier crash: {proc.stderr[:300]!r}")
+            err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "(no output)"
+            hint = ""
+            low = err.lower()
+            if "pydev" in low or "debugger" in low or "debugpy" in low:
+                hint = " | 提示: 请用 IDEA「运行」而不是「调试」(调试器会干扰沙箱子进程)"
+            return ToolResult(
+                False, 0.0,
+                f"verifier crash rc={proc.returncode}: {err[:500]}{hint}",
+            )
 
         total = report.get("total") or len(tests)
         passed = report.get("passed", 0)

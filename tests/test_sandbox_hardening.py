@@ -58,6 +58,7 @@ class BuiltinsGateTest(unittest.TestCase):
 class ProcessGroupKillTest(unittest.TestCase):
     """A candidate that backgrounds a child must not outlive its timeout."""
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "uses sh + POSIX process groups")
     def test_timeout_kills_grandchildren(self):
         marker = Path("/tmp").resolve() / f"odr-pgkill-{time.time_ns()}"
         script = (

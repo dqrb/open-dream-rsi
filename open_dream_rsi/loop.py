@@ -101,6 +101,55 @@ idea verbatim; if one of these was structurally promising, build ON it:
 """
 
 
+def _chain_line(kind: str, data: Dict[str, Any]) -> str:
+    """把内部事件翻成一行中文，供终端对照看板学习。"""
+    tid = data.get("task_id", "")
+    cat = data.get("category", "")
+    tag = f"{tid}" + (f"/{cat}" if cat else "")
+    if kind == "cycle_start":
+        return f"▶ 本轮开始 | 任务: {', '.join(data.get('tasks') or []) or '(空)'}"
+    if kind == "cycle_done":
+        return (f"🔄 本轮结束 | 解出 {data.get('tasks_solved', 0)}/"
+                f"{data.get('tasks_attempted', 0)} | "
+                f"API {data.get('api_calls', 0)} | "
+                f"做梦 {data.get('dream_iterations', 0)}")
+    if kind == "llm_call":
+        t = data.get("temperature")
+        return f"  📡 问模型 | {tag} | 温度={float(t):.2f}" if t is not None else f"  📡 问模型 | {tag}"
+    if kind == "verification":
+        mark = "✅ 通过" if data.get("ok") else "❌ 未过"
+        err = ""
+        if not data.get("ok") and data.get("errors"):
+            err = " | " + str(data["errors"])[:80]
+        return f"  🧪 沙箱验码 | {tag} | {mark} 得分={data.get('score')}{err}"
+    if kind == "dreaming":
+        return (f"  🌙 开始做梦 | {tag} | "
+                f"{data.get('nodes', 0)} 节点 × {data.get('iterations', 0)}")
+    if kind == "dream_done":
+        pol = data.get("policy") or {}
+        return (f"  ✨ 做梦完成 | {tag} | "
+                f"温度={float(pol.get('temperature', 0)):.2f} "
+                f"深度={float(pol.get('exploration_depth', 0)):.2f}")
+    if kind == "task_done":
+        solved = "已解决 🏆" if data.get("solved") else "未解决"
+        return f"  🎯 任务收尾 | {tag} | {solved} | 节点={data.get('nodes', 0)}"
+    if kind == "policy_gen":
+        return f"  🧬 请模型写探索策略 | {tag}"
+    if kind == "policy_promoted":
+        return f"  🧬 策略已晋升 | {tag} | 回放分={float(data.get('score', 0)):.3f}"
+    if kind == "policy_rejected":
+        return f"  🚫 策略被拒 | {tag} | {str(data.get('reason', ''))[:90]}"
+    if kind == "knowledge_curate":
+        return f"  📚 策展失败教训 | {tag} | 新失败={data.get('new_failures', 0)}"
+    if kind == "lessons_curated":
+        return f"  📚 教训入库 | {tag} | +{len(data.get('added') or [])}"
+    if kind == "lesson_rejected":
+        return f"  🚫 教训被拒 | {tag} | {str(data.get('reason', ''))[:90]}"
+    if kind == "runtime_error":
+        return f"  💥 运行时错误 | {data.get('error', '')}"
+    return f"  · {kind} | {tag}"
+
+
 @dataclass
 class Task:
     """队列里的一道题：提示词 + 测试用例（或 criteria）。"""
@@ -206,6 +255,7 @@ class AutoRSIRuntime:
         enable_judge: bool = True,
         sentinel_engine: Any = None,
         alm: Optional["ArtifactLifecycleManager"] = None,
+        verbose: bool = False,
     ):
         self.client = client
         self.memory = memory
@@ -218,6 +268,7 @@ class AutoRSIRuntime:
         self._gate_snapshots: Dict[str, Dict[str, Any]] = {}
         self.max_tokens = max_tokens
         self.on_event = on_event
+        self.verbose = bool(verbose)
         # Baseline online exploration: with probability epsilon the greedy
         # fallback tries a never-expanded branch instead of the best-score
         # leaf. Without it, one high-score decoy (plausible code that never
@@ -265,7 +316,12 @@ class AutoRSIRuntime:
         self.alm = alm if alm is not None else ArtifactLifecycleManager(memory)
 
     def _emit(self, kind: str, **data: Any) -> None:
-        """Push a live event to an optional observer (dashboard, logger, ...)."""
+        """推送实时事件给可选观察者；verbose 时在终端打印中文链路。"""
+        if self.verbose:
+            try:
+                print(f"[链路] {_chain_line(kind, data)}", flush=True)
+            except Exception:
+                pass
         if self.on_event:
             try:
                 self.on_event(kind, data)

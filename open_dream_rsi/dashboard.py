@@ -235,28 +235,43 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8765, provider: str = "mock
         client = OpenAICompatibleClient(cfg)
         provider_label = f"{provider}（{cfg.base_url}）"
 
+    # 每次启动用新记忆目录，避免上次残留脏树干扰演示
+    memory_root = f"{memory_root}-{int(time.time())}"
+
     state = DashboardState(demo_tasks)
     holder: Dict[str, Any] = {"memory": DreamMemory(memory_root)}
 
     def build_runtime() -> AutoRSIRuntime:
+        # 看板在终端启动时默认打印中文链路，方便对照网页事件流
         return AutoRSIRuntime(
             client=client, memory=holder["memory"], tasks=demo_tasks,
             api_call_budget=budget, dream_iterations=90, interval_seconds=interval,
             max_tokens=max_tokens, on_event=state.handle_event,
+            verbose=True,
         )
 
     runtime = build_runtime()
 
     def worker() -> None:
+        cycle = 0
         while True:
             if state.paused:
                 time.sleep(0.2)
                 continue
+            cycle += 1
             runtime.api_calls_used = 0
+            print(f"[链路] ═══ 看板循环第 {cycle} 轮 ═══", flush=True)
             try:
-                runtime.run_once()
+                report = runtime.run_once()
+                print(
+                    f"[链路] ═══ 第 {cycle} 轮收工 | "
+                    f"{report.tasks_solved}/{report.tasks_attempted} 题已解 | "
+                    f"API {report.api_calls} | 做梦 {report.dream_iterations} ═══",
+                    flush=True,
+                )
             except Exception as exc:  # supervisor must survive
                 state.handle_event("runtime_error", {"error": str(exc)[:300]})
+                print(f"[链路] 💥 本轮异常: {exc}", flush=True)
             time.sleep(interval)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -301,8 +316,8 @@ def run_dashboard(host: str = "0.0.0.0", port: int = 8765, provider: str = "mock
 
     srv = ThreadingHTTPServer((host, port), Handler)
     url = f"http://{host}:{port}"
-    print(f"[odr] dashboard live at {url}  provider={provider_label}  "
-          f"tasks={len(demo_tasks)}  (Ctrl-C to stop)", flush=True)
+    print(f"[odr] 看板已启动 {url}  模型={provider_label}  "
+          f"任务数={len(demo_tasks)}  (Ctrl-C 停止)", flush=True)
     if block:
         try:
             srv.serve_forever()

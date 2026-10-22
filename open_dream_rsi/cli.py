@@ -818,9 +818,10 @@ def cmd_bench_policy(args: argparse.Namespace) -> int:
 def cmd_dashboard(args: argparse.Namespace) -> int:
     from open_dream_rsi.dashboard import run_dashboard
 
+    mem = args.memory if args.memory != ".dream_rsi" else ".dream_rsi_dashboard"
     run_dashboard(host=args.host, port=args.port, provider=args.provider,
                   model=args.model, tasks_file=args.tasks, interval=args.interval,
-                  budget=args.budget, memory_root=args.memory, max_tokens=args.max_tokens)
+                  budget=args.budget, memory_root=mem, max_tokens=args.max_tokens)
     return 0
 
 

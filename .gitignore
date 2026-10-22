@@ -11,3 +11,16 @@ paper/main.aux
 paper/main.log
 paper/main.out
 *.tgz
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Accidental local Node link-install (not part of the Python library)
+/node_modules/
+/package.json
+/pnpm-lock.yaml
+
+# Local run artifacts
+odr_chain.log

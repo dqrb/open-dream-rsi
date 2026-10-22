@@ -28,9 +28,6 @@ import subprocess
 import sys
 from typing import Dict, List, Optional
 
-#: Environment handed to sandboxed children: no API keys, no user env.
-SANDBOX_ENV: Dict[str, str] = {"PATH": "/usr/bin:/bin"}
-
 #: Address-space cap for a sandboxed child (MB). Override with
 #: ODR_SANDBOX_MEMORY_MB for candidates that legitimately need more.
 DEFAULT_MEMORY_MB = 512
@@ -46,6 +43,29 @@ MAX_PROCS = 512
 JAIL_ENV_VAR = "ODR_SANDBOX_CMD"
 
 _IS_POSIX = os.name == "posix"
+
+#: Windows needs a few OS vars or ``python.exe`` can fail to boot DLLs;
+#: we still scrub secrets / PYTHON* / debugger hooks so keys never cross.
+_WIN_KEEP = (
+    "SYSTEMROOT", "SystemRoot", "SYSTEMDRIVE", "WINDIR", "Windir",
+    "TEMP", "TMP", "PATHEXT", "COMSPEC", "USERPROFILE", "USERNAME",
+    "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+)
+
+
+def _build_sandbox_env() -> Dict[str, str]:
+    """Minimal child env: no API keys, no PYTHON*, no IDE debugger hooks."""
+    if _IS_POSIX:
+        return {"PATH": "/usr/bin:/bin"}
+    env: Dict[str, str] = {"PATH": os.environ.get("PATH", r"C:\Windows\System32")}
+    for key in _WIN_KEEP:
+        if key in os.environ:
+            env[key] = os.environ[key]
+    return env
+
+
+#: Environment handed to sandboxed children (built once; Windows keeps OS vars).
+SANDBOX_ENV: Dict[str, str] = _build_sandbox_env()
 
 
 def _memory_mb() -> int:
@@ -145,18 +165,27 @@ def run_isolated(
     so callers keep their existing handling.
     """
     argv = [*jail_prefix(), *argv]
-    env = SANDBOX_ENV if env is None else env
-    kwargs = {}
+    # Rebuild each call so a mutated SANDBOX_ENV in tests cannot stick;
+    # always drop debugger / PYTHON* injections that IDEA pydev may patch in.
+    if env is None:
+        env = _build_sandbox_env()
+    kwargs: Dict[str, object] = {}
     preexec = _make_preexec(timeout) if _IS_POSIX else None
     if _IS_POSIX:
         # own session -> own process group we can kill wholesale
         kwargs["start_new_session"] = True
         kwargs["preexec_fn"] = preexec
+    else:
+        # New process group on Windows: IDEA/pydev ``--multiprocess`` is less
+        # likely to attach into the sandboxed verifier child.
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     proc = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         cwd=cwd,
         **kwargs,
